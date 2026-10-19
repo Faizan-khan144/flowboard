@@ -10,6 +10,20 @@ const serverless = Boolean(process.env.VERCEL)
 
 async function buildClient() {
   if (tursoUrl) {
+    const { createClient } = await import('@libsql/client')
+    const client = createClient({ url: tursoUrl, authToken: process.env.TURSO_AUTH_TOKEN })
+    const existing = await client
+      .execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .catch(() => ({ rows: [null] }))
+    if (!existing.rows.length) {
+      const statements = SCHEMA_SQL.replace(/^--.*$/gm, '')
+        .split(';')
+        .map((statement) => statement.trim())
+        .filter(Boolean)
+      for (const statement of statements) {
+        await client.execute(statement).catch(() => {})
+      }
+    }
     return new PrismaClient({
       adapter: new PrismaLibSQL({ url: tursoUrl, authToken: process.env.TURSO_AUTH_TOKEN }),
     })
