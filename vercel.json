@@ -14,7 +14,8 @@
     "server": {
       "root": "server",
       "framework": "express",
-      "entrypoint": "src/app.js"
+      "entrypoint": "src/app.js",
+      "buildCommand": "npx prisma generate --schema prisma/schema.postgres.prisma && npx prisma db push --schema prisma/schema.postgres.prisma"
     }
   },
   "rewrites": [

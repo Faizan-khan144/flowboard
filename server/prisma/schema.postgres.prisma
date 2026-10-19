@@ -1,0 +1,276 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  name         String
+  password     String
+  avatarColor  String         @default("#6366f1")
+  title        String?
+  bio          String?
+  timezone     String?
+  createdAt    DateTime       @default(now())
+
+  memberships  TeamMember[]
+  assigned     Issue[]        @relation("IssueAssignee")
+  created      Issue[]        @relation("IssueCreator")
+  comments     Comment[]
+  notifications Notification[]
+  reactions    Reaction[]
+  activities   Activity[]
+  joinRequests JoinRequest[]
+  invitations  Invite[]       @relation("InviteCreator")
+  starred      StarredProject[]
+  views        SavedView[]
+  watching     IssueWatcher[]
+}
+
+model Team {
+  id          String         @id @default(cuid())
+  name        String
+  slug        String         @unique
+  description String?
+  inviteCode  String?        @unique
+  createdAt   DateTime       @default(now())
+
+  members     TeamMember[]
+  projects    Project[]
+  labels      Label[]
+  invites     Invite[]
+  joinRequests JoinRequest[]
+  activities  Activity[]
+  views       SavedView[]
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  userId   String
+  teamId   String
+  role     String   @default("MEMBER")
+  addedAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  teamId      String
+  name        String
+  key         String
+  description String?
+  color       String   @default("#5b5bd6")
+  icon        String   @default("box")
+  leadId      String?
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  issues      Issue[]
+  cycles      Cycle[]
+  labels      Label[]
+  activities  Activity[]
+
+  @@unique([teamId, key])
+}
+
+model Label {
+  id        String    @id @default(cuid())
+  name      String
+  color     String    @default("#6b7280")
+  teamId    String?
+  projectId String?
+
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues    IssueLabel[]
+}
+
+model Cycle {
+  id        String   @id @default(cuid())
+  projectId String
+  number    Int
+  name      String
+  startsAt  DateTime
+  endsAt    DateTime
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues    Issue[]
+}
+
+model Issue {
+  id          String   @id @default(cuid())
+  projectId   String
+  number      Int
+  title       String
+  description String?
+  status      String   @default("BACKLOG")
+  priority    String   @default("NONE")
+  assigneeId  String?
+  creatorId   String
+  cycleId     String?
+  parentId    String?
+  estimate    Float?
+  dueDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee    User?    @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  creator     User     @relation("IssueCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  cycle       Cycle?   @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  parent      Issue?   @relation("SubIssues", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Issue[]  @relation("SubIssues")
+  labels      IssueLabel[]
+  comments    Comment[]
+  reactions   Reaction[]
+  activities  Activity[]
+  watchers    IssueWatcher[]
+
+  @@unique([projectId, number])
+}
+
+model IssueLabel {
+  issueId String
+  labelId String
+
+  issue   Issue   @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  label   Label   @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, labelId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  issueId   String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reactions Reaction[]
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  userId    String
+  issueId   String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issue     Issue?   @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, commentId, userId, emoji])
+}
+
+model IssueWatcher {
+  id       String   @id @default(cuid())
+  issueId  String
+  userId   String
+  addedAt  DateTime @default(now())
+
+  issue    Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, userId])
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  teamId    String?
+  projectId String?
+  issueId   String?
+  actorId   String
+  action    String
+  fromValue String?
+  toValue   String?
+  createdAt DateTime @default(now())
+
+  team      Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issue     Issue?   @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  actor     User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+}
+
+model Invite {
+  id          String   @id @default(cuid())
+  teamId      String
+  token       String   @unique
+  role        String   @default("MEMBER")
+  createdById String
+  uses        Int      @default(0)
+  maxUses     Int?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+model JoinRequest {
+  id           String   @id @default(cuid())
+  teamId       String
+  userId       String
+  note         String?
+  status       String   @default("PENDING")
+  createdAt    DateTime @default(now())
+  decidedAt    DateTime?
+
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model StarredProject {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+}
+
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String?
+  name      String
+  icon      String   @default("list")
+  config    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  actorId   String?
+  type      String
+  issueId   String?
+  teamId    String?
+  requestId String?
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
