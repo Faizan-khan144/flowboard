@@ -13,9 +13,10 @@ if (!url) {
 const client = createClient({ url, authToken })
 const sql = fs.readFileSync(new URL('./prisma/schema.sql', import.meta.url), 'utf8')
 const statements = sql
+  .replace(/^--.*$/gm, '')
   .split(';')
   .map((statement) => statement.trim())
-  .filter((statement) => statement && !statement.startsWith('--'))
+  .filter(Boolean)
 
 for (const statement of statements) {
   await client.execute(statement)
