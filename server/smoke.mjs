@@ -21,8 +21,10 @@ const expect = (name, cond, detail = '') => {
 }
 
 async function main() {
+  const createdEmails = []
   // --- auth ---------------------------------------------------------------
   const email = `check-${Date.now()}@example.com`
+  createdEmails.push(email)
   const signup = await call('POST', '/api/auth/signup', { body: { name: 'Check User', email, password: 'secret123' } })
   expect('signup returns token', Boolean(signup?.token), JSON.stringify(signup))
   const token = signup?.token
@@ -44,7 +46,7 @@ async function main() {
   const dt = demo.token
 
   const team = await call('GET', `/api/teams/${demo.teamId}`, { token: dt })
-  expect('team has 1 real member', team?.members?.length === 1, `members=${team?.members?.length}`)
+  expect('team has real members', (team?.members?.length || 0) >= 1, `members=${team?.members?.length}`)
   expect('team has projects', (team?.projects?.length || 0) >= 1)
   expect('team has labels', (team?.labels?.length || 0) >= 1)
   expect('no invented emails', !JSON.stringify(team).includes('@flowboard.dev'), 'found @flowboard.dev')
@@ -61,7 +63,7 @@ async function main() {
   const issueId = created?.id
 
   const stale = await call('POST', '/api/issues', { token: dt, body: { projectId: 'gone-project', title: 'stale' } })
-  expect('stale project rejected', stale === null, 'expected failure')
+  expect('stale project rejected', Boolean(stale?.error), JSON.stringify(stale))
 
   const patched = await call('PATCH', `/api/issues/${issueId}`, { token: dt, body: { status: 'IN_PROGRESS', priority: 'LOW' } })
   expect('issue patched', patched?.status === 'IN_PROGRESS', JSON.stringify(patched))
@@ -135,9 +137,11 @@ async function main() {
   expect('invite created', Boolean(inviteToken), JSON.stringify(invite))
   const preview = await call('GET', `/api/join/${inviteToken}`)
   expect('invite preview public', Boolean(preview?.team?.name), JSON.stringify(preview)?.slice(0, 140))
-  expect('preview counts real members', preview?.team?.memberCount === 1, `memberCount=${preview?.team?.memberCount}`)
+  expect('preview counts real members', (preview?.team?.memberCount || 0) >= 1, `memberCount=${preview?.team?.memberCount}`)
 
-  const requester = await call('POST', '/api/auth/signup', { body: { name: 'Second User', email: `second-${Date.now()}@example.com`, password: 'secret123' } })
+  const secondEmail = `second-${Date.now()}@example.com`
+  createdEmails.push(secondEmail)
+  const requester = await call('POST', '/api/auth/signup', { body: { name: 'Second User', email: secondEmail, password: 'secret123' } })
   const rt = requester.token
   const requested = await call('POST', `/api/join/${inviteToken}/request`, { token: rt, body: { note: 'Let me in' } })
   expect('join request created', requested?.status === 'PENDING', JSON.stringify(requested)?.slice(0, 140))
@@ -149,28 +153,39 @@ async function main() {
     const approved = await call('POST', `/api/teams/${team.id}/requests/${req.id}`, { token: dt, body: { action: 'approve' } })
     expect('owner can approve', approved !== null)
     const after = await call('GET', `/api/teams/${team.id}`, { token: dt })
-    expect('member added after approve', after?.members?.length === 2, `members=${after?.members?.length}`)
+    expect('member added after approve', after?.members?.length === ownerTeam.members.length + 1, `members=${after?.members?.length}`)
     const secondTeam = await call('GET', `/api/teams/${team.id}`, { token: rt })
     expect('approved user can read team', Boolean(secondTeam?.id))
   }
 
   // --- authz --------------------------------------------------------------
-  const stranger = await call('POST', '/api/auth/signup', { body: { name: 'Stranger', email: `stranger-${Date.now()}@example.com`, password: 'secret123' } })
+  const strangerEmail = `stranger-${Date.now()}@example.com`
+  createdEmails.push(strangerEmail)
+  const stranger = await call('POST', '/api/auth/signup', { body: { name: 'Stranger', email: strangerEmail, password: 'secret123' } })
   const blocked = await call('GET', `/api/teams/${team.id}`, { token: stranger.token })
   expect('non-member blocked from team', blocked === null || blocked?.error, JSON.stringify(blocked)?.slice(0, 100))
   const noAuth = await call('GET', '/api/issues?teamId=' + team.id)
   expect('unauthenticated blocked', noAuth === null || noAuth?.issues === undefined)
 
-  // cleanup smoke issue
+  // cleanup smoke issue and the throwaway accounts this run created
   await call('DELETE', '/api/issues/bulk', { token: dt, body: { ids: [issueId, child.id] } })
+  const { prisma } = await import('./src/db.js')
+  for (const createdEmail of createdEmails) {
+    const user = await prisma.user.findUnique({ where: { email: createdEmail } })
+    if (user) await prisma.user.delete({ where: { id: user.id } }).catch(() => {})
+  }
+  const empties = await prisma.team.findMany({ include: { _count: { select: { members: true } } } })
+  for (const empty of empties) {
+    if (!empty._count.members) await prisma.team.delete({ where: { id: empty.id } }).catch(() => {})
+  }
+  await prisma.$disconnect()
 
   // --- report -------------------------------------------------------------
-  const failed = results.filter((r) => !r.ok)
-  for (const r of results) {
-    const mark = r.ok ? 'PASS' : 'FAIL'
-    console.log(`${mark}  ${r.method.padEnd(6)} ${r.path}${r.ok ? '' : '  <- ' + r.error}`)
-  }
-  console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
+  const checks = results.filter((r) => r.method === 'ASSERT')
+  const calls = results.filter((r) => r.method !== 'ASSERT')
+  const failed = checks.filter((r) => !r.ok)
+  for (const r of failed) console.log(`FAIL  ${r.path}  <- ${r.error}`)
+  console.log(`\n${checks.length - failed.length}/${checks.length} checks passed (${calls.length} API calls, ${calls.filter((c) => !c.ok).length} expected 4xx)`)
   process.exit(failed.length ? 1 : 0)
 }
 

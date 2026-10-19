@@ -22,9 +22,14 @@ import { prisma } from './db.js'
 const app = express()
 const server = http.createServer(app)
 
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
+const CLIENT_ORIGIN = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
 
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }))
+const allowOrigin = (origin) => !origin || CLIENT_ORIGIN.includes('*') || CLIENT_ORIGIN.includes(origin)
+
+app.use(cors({ origin: (origin, callback) => callback(null, allowOrigin(origin)), credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/api/health', (req, res) => res.json({ ok: true, now: Date.now() }))
@@ -49,7 +54,7 @@ app.use((err, req, res, next) => {
 const JWT_SECRET = process.env.JWT_SECRET || 'flowboard-dev-secret-change-in-prod'
 
 const io = new Server(server, {
-  cors: { origin: CLIENT_ORIGIN, credentials: true },
+  cors: { origin: (origin, callback) => callback(null, allowOrigin(origin)), credentials: true },
 })
 setIO(io)
 
