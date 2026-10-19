@@ -73,10 +73,10 @@ export default function IssueDrawer({ issueId, team, onClose, onChanged }) {
     if (!socket) return
     const refresh = () => load()
     const onComment = (payload) => {
-      if (payload.issueId === issueId) load()
+      if (!payload?.issueId || payload.issueId === issueId) load()
     }
     const onReaction = (payload) => {
-      if (payload.issueId === issueId) load()
+      if (!payload?.issueId || payload.issueId === issueId) load()
     }
     socket.on('issue:updated', refresh)
     socket.on('comment:created', onComment)
